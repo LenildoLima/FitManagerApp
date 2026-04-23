@@ -1,0 +1,124 @@
+import { Users, UserPlus, AlertCircle, ClipboardX, UserMinus, Activity, TrendingUp, ArrowUpRight } from "lucide-react";
+import { students, payments, isInactive } from "@/lib/mock-data";
+import { StatusBadge } from "@/components/StatusBadge";
+import { Link } from "react-router-dom";
+
+const iconBg: Record<string, string> = {
+  primary: "bg-primary/15 text-primary",
+  warning: "bg-warning/15 text-warning",
+  destructive: "bg-destructive/15 text-destructive",
+  info: "bg-info/15 text-info",
+};
+
+function StatCard({ icon: Icon, label, value, hint, tone = "primary" }: any) {
+  return (
+    <div className="stat-card">
+      <div className="flex items-start justify-between">
+        <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${iconBg[tone]}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+        <ArrowUpRight className="h-4 w-4 text-muted-foreground/50" />
+      </div>
+      <p className="mt-4 text-3xl font-bold tracking-tight">{value}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{label}</p>
+      {hint && <p className="mt-2 text-xs text-muted-foreground/80">{hint}</p>}
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  const activeStudents = students.filter((s) => s.status === "Ativo").length;
+  const newThisMonth = students.filter((s) => new Date(s.startDate) >= new Date("2026-04-01")).length;
+  const overdue = payments.filter((p) => p.status === "Atrasado").length;
+  const noEvaluation = students.filter((s) => s.evaluationStatus === "Sem avaliação").length;
+  const inactive = students.filter((s) => isInactive(s)).length;
+  const occupancy = 23;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Visão geral da operação · {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}</p>
+        </div>
+        <Link
+          to="/alunos/novo"
+          className="inline-flex items-center gap-2 rounded-lg bg-gradient-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-glow transition-smooth hover:opacity-90"
+        >
+          <UserPlus className="h-4 w-4" />
+          Novo aluno
+        </Link>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
+        <StatCard icon={Users} label="Alunos ativos" value={activeStudents} hint="Total atualmente matriculado" tone="primary" />
+        <StatCard icon={TrendingUp} label="Novos no mês" value={newThisMonth} hint="Cadastros em abril/2026" tone="info" />
+        <StatCard icon={AlertCircle} label="Mensalidades em aberto" value={overdue} hint="Inadimplência atual" tone="destructive" />
+        <StatCard icon={ClipboardX} label="Sem avaliação física" value={noEvaluation} hint="Bloqueados para treino" tone="warning" />
+        <StatCard icon={UserMinus} label="Inativos +15 dias" value={inactive} hint="Última entrada ausente" tone="warning" />
+        <StatCard icon={Activity} label="Ocupação atual" value={occupancy} hint="Pessoas na academia agora" tone="primary" />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-semibold">Atenção necessária</h2>
+            <Link to="/alunos" className="text-xs text-primary hover:underline">Ver todos</Link>
+          </div>
+          <div className="space-y-3">
+            {students
+              .filter((s) => s.evaluationStatus !== "Aprovada" || isInactive(s))
+              .slice(0, 5)
+              .map((s) => (
+                <Link
+                  key={s.id}
+                  to={`/alunos/${s.id}`}
+                  className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 p-3 transition-smooth hover:border-primary/40"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-xs font-bold">
+                      {s.name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">{s.name}</p>
+                      <p className="text-xs text-muted-foreground">{s.evaluationStatus !== "Aprovada" ? s.evaluationStatus : "Inativo +15 dias"}</p>
+                    </div>
+                  </div>
+                  <StatusBadge variant={s.evaluationStatus === "Sem avaliação" ? "destructive" : "warning"}>
+                    {s.evaluationStatus === "Sem avaliação" ? "Sem avaliação" : s.evaluationStatus === "Aguardando laudo" ? "Aguardando laudo" : "Inativo"}
+                  </StatusBadge>
+                </Link>
+              ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-semibold">Inadimplentes</h2>
+            <Link to="/financeiro" className="text-xs text-primary hover:underline">Ver financeiro</Link>
+          </div>
+          <div className="space-y-3">
+            {payments
+              .filter((p) => p.status === "Atrasado")
+              .map((p) => {
+                const student = students.find((s) => s.id === p.studentId);
+                if (!student) return null;
+                return (
+                  <div key={p.id} className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 p-3">
+                    <div>
+                      <p className="text-sm font-medium">{student.name}</p>
+                      <p className="text-xs text-muted-foreground">Venc. {new Date(p.dueDate).toLocaleDateString("pt-BR")}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold">R$ {p.amount.toFixed(2)}</p>
+                      <StatusBadge variant="destructive">Atrasado</StatusBadge>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
