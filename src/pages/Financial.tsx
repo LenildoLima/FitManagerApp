@@ -1,21 +1,27 @@
-import { useState } from "react";
 import { CheckCircle2 } from "lucide-react";
-import { payments as initialPayments, students } from "@/lib/mock-data";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useCobrancas } from "@/hooks/useCobrancas";
+import { formatarMoeda } from "@/utils/formatters";
 
 export default function Financial() {
-  const [payments, setPayments] = useState(initialPayments);
+  const { cobrancas, loading, registrarPagamento } = useCobrancas();
 
-  const total = payments.reduce((acc, p) => acc + p.amount, 0);
-  const overdue = payments.filter((p) => p.status === "Atrasado").reduce((acc, p) => acc + p.amount, 0);
-  const paid = payments.filter((p) => p.status === "Pago").reduce((acc, p) => acc + p.amount, 0);
+  const total = cobrancas.reduce((acc, p) => acc + p.valor, 0);
+  const overdue = cobrancas.filter((p) => p.status === "atrasado").reduce((acc, p) => acc + p.valor, 0);
+  const paid = cobrancas.filter((p) => p.status === "pago").reduce((acc, p) => acc + p.valor, 0);
 
-  const registerPayment = (id: string) => {
-    setPayments(payments.map((p) => p.id === id ? { ...p, status: "Pago" as const, paidAt: new Date().toISOString(), method: "PIX" } : p));
-    toast.success("Pagamento registrado!");
+  const handlePayment = async (id: string) => {
+    try {
+      await registrarPagamento(id, 'pix'); // Default para pix
+      toast.success("Pagamento registrado!");
+    } catch (error: any) {
+      toast.error("Erro ao registrar pagamento: " + error.message);
+    }
   };
+
+  if (loading) return <div className="flex h-[80vh] items-center justify-center">Carregando...</div>;
 
   return (
     <div className="space-y-5">
@@ -27,15 +33,15 @@ export default function Financial() {
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="stat-card">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">Total faturado</p>
-          <p className="mt-2 text-2xl font-bold">R$ {paid.toFixed(2)}</p>
+          <p className="mt-2 text-2xl font-bold">{formatarMoeda(paid)}</p>
         </div>
         <div className="stat-card">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">Em aberto</p>
-          <p className="mt-2 text-2xl font-bold text-destructive">R$ {overdue.toFixed(2)}</p>
+          <p className="mt-2 text-2xl font-bold text-destructive">{formatarMoeda(overdue)}</p>
         </div>
         <div className="stat-card">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">Total previsto</p>
-          <p className="mt-2 text-2xl font-bold">R$ {total.toFixed(2)}</p>
+          <p className="mt-2 text-2xl font-bold">{formatarMoeda(total)}</p>
         </div>
       </div>
 
@@ -53,23 +59,22 @@ export default function Financial() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {payments.map((p) => {
-                const student = students.find((s) => s.id === p.studentId);
+              {cobrancas.map((p) => {
                 return (
                   <tr key={p.id} className="hover:bg-secondary/30">
-                    <td className="px-4 py-3 font-medium">{student?.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.monthRef}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{new Date(p.dueDate).toLocaleDateString("pt-BR")}</td>
-                    <td className="px-4 py-3 font-semibold">R$ {p.amount.toFixed(2)}</td>
+                    <td className="px-4 py-3 font-medium">{p.aluno?.nome}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{p.mes_referencia}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{new Date(p.vencimento).toLocaleDateString("pt-BR")}</td>
+                    <td className="px-4 py-3 font-semibold">{formatarMoeda(p.valor)}</td>
                     <td className="px-4 py-3">
-                      <StatusBadge variant={p.status === "Pago" ? "success" : p.status === "Atrasado" ? "destructive" : "warning"}>
+                      <StatusBadge variant={p.status === "pago" ? "success" : p.status === "atrasado" ? "destructive" : "warning"}>
                         {p.status}
                       </StatusBadge>
-                      {p.paidAt && <span className="ml-2 text-xs text-muted-foreground">{p.method}</span>}
+                      {p.pago_em && <span className="ml-2 text-xs text-muted-foreground">{p.forma_pagamento}</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {p.status !== "Pago" && (
-                        <Button size="sm" onClick={() => registerPayment(p.id)} className="h-7 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
+                      {p.status !== "pago" && (
+                        <Button size="sm" onClick={() => handlePayment(p.id)} className="h-7 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
                           <CheckCircle2 className="mr-1 h-3.5 w-3.5" /> Registrar pagamento
                         </Button>
                       )}

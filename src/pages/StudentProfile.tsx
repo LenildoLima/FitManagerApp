@@ -1,33 +1,57 @@
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Calendar, Phone, Mail, ClipboardList, Dumbbell, DollarSign, AlertTriangle } from "lucide-react";
-import { students, payments, workouts, getPlanName, isInadimplente, isWorkoutExpired } from "@/lib/mock-data";
+import { ArrowLeft, Calendar, Phone, Mail, ClipboardList, Dumbbell, DollarSign, AlertTriangle, Printer } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useAlunos } from "@/hooks/useAlunos";
+import { useCobrancas } from "@/hooks/useCobrancas";
+import { useAvaliacoes } from "@/hooks/useAvaliacoes";
+import { Button } from "@/components/ui/button";
+import { gerarContrato } from "@/utils/gerarContrato";
+import { formatarCPF, formatarTelefone, formatarMoeda } from "@/utils/formatters";
 
 export default function StudentProfile() {
   const { id } = useParams();
-  const student = students.find((s) => s.id === id);
+  const { alunos, loading: loadingAlunos } = useAlunos();
+  const { cobrancas, loading: loadingCobrancas } = useCobrancas(id);
+  const { avaliacoes, loading: loadingAvaliacoes } = useAvaliacoes(id);
+
+  const student = alunos.find((s) => s.id === id);
+
+  if (loadingAlunos || loadingCobrancas || loadingAvaliacoes) {
+    return <div className="flex h-[80vh] items-center justify-center">Carregando...</div>;
+  }
 
   if (!student) {
     return (
-      <div className="text-center text-muted-foreground">
-        Aluno não encontrado. <Link to="/alunos" className="text-primary">Voltar</Link>
+      <div className="text-center text-muted-foreground p-10">
+        Aluno não encontrado. <Link to="/alunos" className="text-primary hover:underline">Voltar</Link>
       </div>
     );
   }
 
-  const overdue = isInadimplente(student.id);
-  const noEval = student.evaluationStatus !== "Aprovada";
-  const workoutExpired = isWorkoutExpired(student);
-  const studentPayments = payments.filter((p) => p.studentId === student.id);
-  const studentWorkout = workouts.find((w) => w.studentId === student.id && w.active);
+  const overdue = cobrancas.some((p) => p.status === "atrasado");
+  const noEval = avaliacoes.length === 0;
+  const workoutExpired = false; // Ajustar quando houver hook de fichas
+  const studentPayments = cobrancas;
+  const studentWorkout = null; // Ajustar quando houver hook de fichas
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Link to="/alunos" className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <h1 className="text-2xl font-bold tracking-tight">Perfil do aluno</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link to="/alunos" className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <h1 className="text-2xl font-bold tracking-tight">Perfil do aluno</h1>
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="gap-2 border-primary text-primary hover:bg-primary/5"
+          onClick={() => student.plano && gerarContrato(student, student.plano)}
+        >
+          <Printer className="h-4 w-4" />
+          Reimprimir contrato
+        </Button>
       </div>
 
       {/* Alerts */}
@@ -37,7 +61,7 @@ export default function StudentProfile() {
             <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
               <AlertTriangle className="h-4 w-4" />
               <span className="font-medium">Bloqueado para treino</span>
-              <span className="text-destructive/80">— {student.evaluationStatus}</span>
+              <span className="text-destructive/80">— Nenhuma avaliação encontrada</span>
               <Link to={`/avaliacoes/nova/${student.id}`} className="ml-auto rounded-md bg-destructive px-3 py-1 text-xs font-medium text-destructive-foreground hover:opacity-90">
                 Iniciar avaliação
               </Link>
@@ -61,19 +85,19 @@ export default function StudentProfile() {
         <div className="rounded-xl border border-border bg-card p-5 lg:col-span-1">
           <div className="flex flex-col items-center text-center">
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-primary text-2xl font-bold text-primary-foreground">
-              {student.name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+              {student.nome.split(" ").map((n) => n[0]).slice(0, 2).join("")}
             </div>
-            <h2 className="mt-3 text-lg font-bold">{student.name}</h2>
-            <p className="text-xs text-muted-foreground">{student.cpf}</p>
+            <h2 className="mt-3 text-lg font-bold">{student.nome}</h2>
+            <p className="text-xs text-muted-foreground">{formatarCPF(student.cpf)}</p>
             <div className="mt-3 flex flex-wrap justify-center gap-1">
-              <StatusBadge variant={student.status === "Ativo" ? "success" : "muted"}>{student.status}</StatusBadge>
-              <StatusBadge variant={noEval ? "destructive" : "success"}>{student.evaluationStatus}</StatusBadge>
+              <StatusBadge variant={student.status === "ativo" ? "success" : "muted"}>{student.status}</StatusBadge>
+              <StatusBadge variant={noEval ? "destructive" : "success"}>{noEval ? "Sem avaliação" : "Avaliado"}</StatusBadge>
             </div>
           </div>
           <div className="mt-5 space-y-2.5 text-sm">
-            <div className="flex items-center gap-2 text-muted-foreground"><Mail className="h-4 w-4" />{student.email}</div>
-            <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" />{student.phone}</div>
-            <div className="flex items-center gap-2 text-muted-foreground"><Calendar className="h-4 w-4" />Nasc. {new Date(student.birthDate).toLocaleDateString("pt-BR")}</div>
+            <div className="flex items-center gap-2 text-muted-foreground"><Mail className="h-4 w-4" />{student.email || 'N/A'}</div>
+            <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" />{formatarTelefone(student.celular || student.telefone || '')}</div>
+            <div className="flex items-center gap-2 text-muted-foreground"><Calendar className="h-4 w-4" />Nasc. {student.data_nascimento ? new Date(student.data_nascimento).toLocaleDateString("pt-BR") : 'N/A'}</div>
           </div>
         </div>
 
@@ -82,8 +106,8 @@ export default function StudentProfile() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-xl border border-border bg-card p-5">
               <p className="text-xs uppercase tracking-wider text-muted-foreground">Plano atual</p>
-              <p className="mt-1 text-lg font-bold">{getPlanName(student.planId)}</p>
-              <p className="text-xs text-muted-foreground">Vence em {new Date(student.dueDate).toLocaleDateString("pt-BR")}</p>
+              <p className="mt-1 text-lg font-bold">{student.plano?.nome || 'Nenhum'}</p>
+              <p className="text-xs text-muted-foreground">Vence em {student.data_vencimento_plano ? new Date(student.data_vencimento_plano).toLocaleDateString("pt-BR") : '-'}</p>
             </div>
             <div className="rounded-xl border border-border bg-card p-5">
               <p className="text-xs uppercase tracking-wider text-muted-foreground">Financeiro</p>
@@ -97,15 +121,17 @@ export default function StudentProfile() {
               <h3 className="flex items-center gap-2 font-semibold"><ClipboardList className="h-4 w-4 text-primary" /> Avaliações físicas</h3>
               <Link to={`/avaliacoes/nova/${student.id}`} className="text-xs text-primary hover:underline">Nova avaliação</Link>
             </div>
-            {student.evaluationStatus === "Aprovada" ? (
+            {avaliacoes.length > 0 ? (
               <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 p-3 text-sm">
-                  <div>
-                    <p className="font-medium">Avaliação inicial</p>
-                    <p className="text-xs text-muted-foreground">15/01/2026 · CREF 0000-G/SP</p>
+                {avaliacoes.map((av) => (
+                  <div key={av.id} className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 p-3 text-sm">
+                    <div>
+                      <p className="font-medium">Avaliação em {new Date(av.data_avaliacao).toLocaleDateString("pt-BR")}</p>
+                      <p className="text-xs text-muted-foreground">CREF: {av.cref || 'N/A'}</p>
+                    </div>
+                    <StatusBadge variant={av.status === 'aprovada' ? "success" : "warning"}>{av.status}</StatusBadge>
                   </div>
-                  <StatusBadge variant="success">Aprovada</StatusBadge>
-                </div>
+                ))}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Nenhuma avaliação registrada.</p>
@@ -117,19 +143,7 @@ export default function StudentProfile() {
               <h3 className="flex items-center gap-2 font-semibold"><Dumbbell className="h-4 w-4 text-primary" /> Ficha de treino atual</h3>
               {!noEval && <Link to={`/fichas/nova/${student.id}`} className="text-xs text-primary hover:underline">Nova ficha</Link>}
             </div>
-            {studentWorkout ? (
-              <div className="rounded-lg border border-border bg-secondary/30 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="font-medium">{studentWorkout.name}</p>
-                  <StatusBadge variant={workoutExpired ? "warning" : "success"}>
-                    {workoutExpired ? "Vencida" : "Ativa"}
-                  </StatusBadge>
-                </div>
-                <p className="text-xs text-muted-foreground">{studentWorkout.divisions.length} divisões · {studentWorkout.divisions.reduce((acc, d) => acc + d.exercises.length, 0)} exercícios</p>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">Sem ficha ativa.</p>
-            )}
+            <p className="text-sm text-muted-foreground">Funcionalidade de fichas será integrada em breve.</p>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
@@ -141,12 +155,12 @@ export default function StudentProfile() {
                 {studentPayments.map((p) => (
                   <div key={p.id} className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 p-3 text-sm">
                     <div>
-                      <p className="font-medium">Mensalidade {p.monthRef}</p>
-                      <p className="text-xs text-muted-foreground">Venc. {new Date(p.dueDate).toLocaleDateString("pt-BR")}</p>
+                      <p className="font-medium">Mensalidade {p.mes_referencia}</p>
+                      <p className="text-xs text-muted-foreground">Venc. {new Date(p.vencimento).toLocaleDateString("pt-BR")}</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="font-semibold">R$ {p.amount.toFixed(2)}</span>
-                      <StatusBadge variant={p.status === "Pago" ? "success" : p.status === "Atrasado" ? "destructive" : "warning"}>{p.status}</StatusBadge>
+                      <span className="font-semibold">{formatarMoeda(p.valor)}</span>
+                      <StatusBadge variant={p.status === "pago" ? "success" : p.status === "atrasado" ? "destructive" : "warning"}>{p.status}</StatusBadge>
                     </div>
                   </div>
                 ))}

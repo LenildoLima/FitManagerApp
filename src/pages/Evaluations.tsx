@@ -1,9 +1,13 @@
 import { Link } from "react-router-dom";
 import { ClipboardList, Plus } from "lucide-react";
-import { students } from "@/lib/mock-data";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useAlunos } from "@/hooks/useAlunos";
 
 export default function Evaluations() {
+  const { alunos, loading } = useAlunos();
+
+  if (loading) return <div className="flex h-[80vh] items-center justify-center">Carregando...</div>;
+
   return (
     <div className="space-y-5">
       <div>
@@ -12,18 +16,18 @@ export default function Evaluations() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {students.map((s) => (
+        {alunos.map((s) => (
           <div key={s.id} className="rounded-xl border border-border bg-card p-4 transition-smooth hover:border-primary/40">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-sm font-bold">
-                {s.name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                {s.nome.split(" ").map((n) => n[0]).slice(0, 2).join("")}
               </div>
               <div className="flex-1">
-                <p className="font-medium">{s.name}</p>
+                <p className="font-medium">{s.nome}</p>
                 <StatusBadge
-                  variant={s.evaluationStatus === "Aprovada" ? "success" : s.evaluationStatus === "Sem avaliação" ? "destructive" : "warning"}
+                  variant={s.status === "ativo" ? "success" : "warning"}
                 >
-                  {s.evaluationStatus}
+                  {s.status}
                 </StatusBadge>
               </div>
             </div>

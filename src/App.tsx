@@ -15,6 +15,7 @@ import Workouts from "./pages/Workouts";
 import WorkoutNew from "./pages/WorkoutNew";
 import Financial from "./pages/Financial";
 import Plans from "./pages/Plans";
+import StudentEdit from "./pages/StudentEdit";
 import Placeholder from "./pages/Placeholder";
 import NotFound from "./pages/NotFound.tsx";
 
@@ -32,6 +33,7 @@ const App = () => (
             <Route path="/" element={<Dashboard />} />
             <Route path="/alunos" element={<Students />} />
             <Route path="/alunos/novo" element={<StudentNew />} />
+            <Route path="/alunos/editar/:id" element={<StudentEdit />} />
             <Route path="/alunos/:id" element={<StudentProfile />} />
             <Route path="/avaliacoes" element={<Evaluations />} />
             <Route path="/avaliacoes/nova/:studentId" element={<EvaluationNew />} />

@@ -4,20 +4,32 @@ import { Dumbbell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Login() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("admin@fitmanager.app");
-  const [password, setPassword] = useState("demo");
+  const { signIn } = useAuth();
+  const { toast } = useToast();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      await signIn(email, password);
       navigate("/");
-    }, 600);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro no login",
+        description: error.message || "Verifique suas credenciais.",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -54,10 +66,6 @@ export default function Login() {
             </Button>
           </form>
 
-          <div className="mt-5 rounded-lg border border-border bg-secondary/40 p-3 text-xs text-muted-foreground">
-            <p className="font-medium text-foreground">Demo:</p>
-            <p>Use qualquer credencial para entrar. Perfis: admin, recepcionista, professor, aluno.</p>
-          </div>
         </div>
 
         <p className="mt-6 text-center text-xs text-muted-foreground">© 2026 FitManager. Todos os direitos reservados.</p>

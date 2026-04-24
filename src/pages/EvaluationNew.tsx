@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Check, AlertTriangle, Upload } from "lucide-react";
-import { students, calculateBMI, bmiClassification } from "@/lib/mock-data";
+import { calculateBMI, bmiClassification } from "@/lib/mock-data";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/StatusBadge";
 import { toast } from "sonner";
+import { useAlunos } from "@/hooks/useAlunos";
+import { useAvaliacoes } from "@/hooks/useAvaliacoes";
 
 const STEPS = ["Anamnese", "PAR-Q", "Antropometria", "Testes Físicos", "Parecer"];
 
@@ -79,7 +81,10 @@ function YesNo({ value, onChange }: { value: boolean | null; onChange: (v: boole
 export default function EvaluationNew() {
   const { studentId } = useParams();
   const navigate = useNavigate();
-  const student = students.find((s) => s.id === studentId);
+  const { alunos, loading: loadingAlunos } = useAlunos();
+  const { criarAvaliacao } = useAvaliacoes();
+  
+  const student = alunos.find((s) => s.id === studentId);
 
   const [step, setStep] = useState(0);
   const [objectives, setObjectives] = useState<string[]>([]);
@@ -99,9 +104,10 @@ export default function EvaluationNew() {
   }, [weight, height]);
   const bmiInfo = bmi ? bmiClassification(bmi) : null;
 
-  if (!student) return <div>Aluno não encontrado.</div>;
+  if (loadingAlunos) return <div className="flex h-[80vh] items-center justify-center">Carregando...</div>;
+  if (!student) return <div className="p-10 text-center">Aluno não encontrado.</div>;
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (!cref.trim()) {
       toast.error("CREF do profissional é obrigatório.");
       return;
@@ -110,8 +116,20 @@ export default function EvaluationNew() {
       toast.error("PAR-Q exige laudo médico antes da liberação.");
       return;
     }
-    toast.success(`${student.name} foi liberado(a) para treino!`);
-    navigate(`/alunos/${student.id}`);
+
+    try {
+      await criarAvaliacao({
+        aluno_id: student.id,
+        data_avaliacao: new Date().toISOString(),
+        cref,
+        nivel_condicionamento: level as any,
+        status: 'aprovada'
+      });
+      toast.success(`${student.nome} foi liberado(a) para treino!`);
+      navigate(`/alunos/${student.id}`);
+    } catch (error: any) {
+      toast.error("Erro ao salvar avaliação: " + error.message);
+    }
   };
 
   return (
@@ -122,7 +140,7 @@ export default function EvaluationNew() {
         </Link>
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Avaliação Física</h1>
-          <p className="text-sm text-muted-foreground">{student.name}</p>
+          <p className="text-sm text-muted-foreground">{student.nome}</p>
         </div>
       </div>
 
@@ -210,7 +228,7 @@ export default function EvaluationNew() {
               <div className="space-y-1.5 md:col-span-2"><Label>Regime alimentar</Label><Textarea rows={2} /></div>
             </div>
 
-            {student.sex === "Feminino" && (
+            {student.sexo_biologico === "feminino" && (
               <div className="rounded-lg border border-border bg-secondary/20 p-4">
                 <Label>Gestante ou pós-parto recente?</Label>
                 <div className="mt-2"><YesNo value={null} onChange={() => {}} /></div>

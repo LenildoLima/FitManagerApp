@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Upload, Check, Loader2, X } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -11,17 +11,18 @@ import { toast } from "sonner";
 import { useAlunos } from "@/hooks/useAlunos";
 import { usePlanos } from "@/hooks/usePlanos";
 import { supabase } from "@/lib/supabase";
-
 import { gerarContrato } from "@/utils/gerarContrato";
 import { mascararCPF, mascararTelefone } from "@/utils/formatters";
 
-export default function StudentNew() {
+export default function StudentEdit() {
+  const { id } = useParams();
   const navigate = useNavigate();
-  const { criarAluno, atualizarAluno, fetchAlunos } = useAlunos();
+  const { atualizarAluno, fetchAlunos } = useAlunos();
   const { planos } = usePlanos();
 
   const [tab, setTab] = useState("dados");
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [formData, setFormData] = useState({
     nome: "",
     cpf: "",
@@ -44,13 +45,46 @@ export default function StudentNew() {
     observacoes: "",
     plano_id: "",
     status: "ativo" as any,
-    data_inicio_plano: new Date().toISOString().split('T')[0],
+    data_inicio_plano: "",
+    data_vencimento_plano: "",
     lgpd_aceito: false,
     foto_url: "",
     contrato_url: "",
     laudo_medico_url: "",
-    data_vencimento_plano: "",
   });
+
+  useEffect(() => {
+    async function loadStudent() {
+      if (!id) return;
+      try {
+        const { data, error } = await supabase
+          .from('alunos')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (error) throw error;
+        if (data) {
+          setFormData({
+            ...data,
+            cpf: mascararCPF(data.cpf || ""),
+            telefone: mascararTelefone(data.telefone || ""),
+            celular: mascararTelefone(data.celular || ""),
+            emergencia_telefone: mascararTelefone(data.emergencia_telefone || ""),
+            lgpd_aceito: !!data.lgpd_aceito,
+            data_inicio_plano: data.data_inicio_plano || "",
+            data_vencimento_plano: data.data_vencimento_plano || "",
+          });
+        }
+      } catch (error: any) {
+        toast.error("Erro ao carregar aluno: " + error.message);
+        navigate("/alunos");
+      } finally {
+        setInitialLoading(false);
+      }
+    }
+    loadStudent();
+  }, [id, navigate]);
 
   useEffect(() => {
     if (formData.plano_id && formData.data_inicio_plano) {
@@ -65,13 +99,16 @@ export default function StudentNew() {
         const vencimento = new Date(inicio);
         vencimento.setMonth(inicio.getMonth() + meses);
         
-        setFormData(prev => ({
-          ...prev,
-          data_vencimento_plano: vencimento.toISOString().split('T')[0]
-        }));
+        const newVencimento = vencimento.toISOString().split('T')[0];
+        if (newVencimento !== formData.data_vencimento_plano) {
+            setFormData(prev => ({
+              ...prev,
+              data_vencimento_plano: newVencimento
+            }));
+        }
       }
     }
-  }, [formData.plano_id, formData.data_inicio_plano, planos]);
+  }, [formData.plano_id, formData.data_inicio_plano, planos, formData.data_vencimento_plano]);
 
   const handleDownloadContrato = () => {
     const plano = planos.find(p => p.id === formData.plano_id);
@@ -135,7 +172,7 @@ export default function StudentNew() {
   };
 
   const handleSave = async () => {
-    // Validação
+    if (!id) return;
     if (!isStep1Complete) {
       toast.error("Preencha todos os campos obrigatórios (*)");
       setTab("dados");
@@ -148,50 +185,42 @@ export default function StudentNew() {
       return;
     }
 
-    if (!formData.lgpd_aceito) {
-      toast.error("É necessário aceitar o termo LGPD.");
-      setTab("docs");
-      return;
-    }
-
     try {
       setLoading(true);
 
-      // 1. Criar o aluno primeiro para obter o ID (necessário para o nome do arquivo no storage)
-      const novoAluno = await criarAluno({
-        ...formData,
-        lgpd_aceito_em: formData.lgpd_aceito ? new Date().toISOString() : null,
-      });
+      let updates: any = { ...formData };
+      delete updates.id;
+      delete updates.created_at;
+      delete updates.updated_at;
+      delete updates.plano; // join data
 
-      const studentId = novoAluno.id;
-      let updates: any = {};
-
-      // 2. Upload de arquivos se existirem
+      // Upload de novos arquivos se existirem
       if (files.foto) {
-        updates.foto_url = await uploadFile(files.foto, 'fotos', studentId);
+        updates.foto_url = await uploadFile(files.foto, 'fotos', id);
       }
       if (files.contrato) {
-        updates.contrato_url = await uploadFile(files.contrato, 'contratos', studentId);
+        updates.contrato_url = await uploadFile(files.contrato, 'contratos', id);
       }
       if (files.laudo) {
-        updates.laudo_medico_url = await uploadFile(files.laudo, 'laudos', studentId);
+        updates.laudo_medico_url = await uploadFile(files.laudo, 'laudos', id);
       }
 
-      // 3. Se houve uploads, atualizar o aluno com as URLs
-      if (Object.keys(updates).length > 0) {
-        await atualizarAluno(studentId, updates);
-      }
+      await atualizarAluno(id, updates);
 
-      toast.success("Aluno cadastrado com sucesso!");
-      await fetchAlunos(); // Atualizar listagem
+      toast.success("Cadastro atualizado com sucesso!");
+      await fetchAlunos();
       navigate("/alunos");
     } catch (error: any) {
-      console.error("Erro ao salvar aluno:", error);
-      toast.error("Erro ao cadastrar aluno: " + (error.message || "Verifique o console"));
+      console.error("Erro ao atualizar aluno:", error);
+      toast.error("Erro ao atualizar: " + (error.message || "Verifique o console"));
     } finally {
       setLoading(false);
     }
   };
+
+  if (initialLoading) {
+    return <div className="flex h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
@@ -200,8 +229,8 @@ export default function StudentNew() {
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Novo Aluno</h1>
-          <p className="text-sm text-muted-foreground">Preencha as três etapas para concluir o cadastro</p>
+          <h1 className="text-2xl font-bold tracking-tight">Editar Aluno</h1>
+          <p className="text-sm text-muted-foreground">Atualize as informações do cadastro</p>
         </div>
       </div>
 
@@ -216,19 +245,19 @@ export default function StudentNew() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Nome completo *</Label>
-              <Input name="nome" value={formData.nome} onChange={handleInputChange} placeholder="Nome completo" />
+              <Input name="nome" value={formData.nome || ""} onChange={handleInputChange} placeholder="Nome completo" />
             </div>
             <div className="space-y-1.5">
               <Label>CPF *</Label>
-              <Input name="cpf" value={formData.cpf} onChange={handleInputChange} placeholder="000.000.000-00" />
+              <Input name="cpf" value={formData.cpf || ""} onChange={handleInputChange} placeholder="000.000.000-00" />
             </div>
             <div className="space-y-1.5">
               <Label>RG</Label>
-              <Input name="rg" value={formData.rg} onChange={handleInputChange} placeholder="00.000.000-0" />
+              <Input name="rg" value={formData.rg || ""} onChange={handleInputChange} placeholder="00.000.000-0" />
             </div>
             <div className="space-y-1.5">
               <Label>Data de nascimento *</Label>
-              <Input name="data_nascimento" type="date" value={formData.data_nascimento} onChange={handleInputChange} />
+              <Input name="data_nascimento" type="date" value={formData.data_nascimento || ""} onChange={handleInputChange} />
             </div>
             <div className="space-y-1.5">
               <Label>Sexo biológico *</Label>
@@ -242,15 +271,15 @@ export default function StudentNew() {
             </div>
             <div className="space-y-1.5">
               <Label>Telefone</Label>
-              <Input name="telefone" value={formData.telefone} onChange={handleInputChange} placeholder="(11) 0000-0000" />
+              <Input name="telefone" value={formData.telefone || ""} onChange={handleInputChange} placeholder="(11) 0000-0000" />
             </div>
             <div className="space-y-1.5">
               <Label>Celular *</Label>
-              <Input name="celular" value={formData.celular} onChange={handleInputChange} placeholder="(11) 90000-0000" />
+              <Input name="celular" value={formData.celular || ""} onChange={handleInputChange} placeholder="(11) 90000-0000" />
             </div>
             <div className="space-y-1.5">
               <Label>E-mail *</Label>
-              <Input name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="email@exemplo.com" />
+              <Input name="email" type="email" value={formData.email || ""} onChange={handleInputChange} placeholder="email@exemplo.com" />
             </div>
           </div>
 
@@ -259,25 +288,25 @@ export default function StudentNew() {
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-1.5">
                 <Label>CEP</Label>
-                <Input name="cep" value={formData.cep} onChange={handleInputChange} placeholder="00000-000" />
+                <Input name="cep" value={formData.cep || ""} onChange={handleInputChange} placeholder="00000-000" />
               </div>
               <div className="space-y-1.5 md:col-span-2">
                 <Label>Logradouro</Label>
-                <Input name="logradouro" value={formData.logradouro} onChange={handleInputChange} placeholder="Rua / Avenida" />
+                <Input name="logradouro" value={formData.logradouro || ""} onChange={handleInputChange} placeholder="Rua / Avenida" />
               </div>
-              <div className="space-y-1.5"><Label>Número</Label><Input name="numero" value={formData.numero} onChange={handleInputChange} /></div>
-              <div className="space-y-1.5"><Label>Bairro</Label><Input name="bairro" value={formData.bairro} onChange={handleInputChange} /></div>
-              <div className="space-y-1.5"><Label>Cidade</Label><Input name="cidade" value={formData.cidade} onChange={handleInputChange} /></div>
-              <div className="space-y-1.5"><Label>Estado</Label><Input name="estado" value={formData.estado} onChange={handleInputChange} maxLength={2} placeholder="SP" /></div>
+              <div className="space-y-1.5"><Label>Número</Label><Input name="numero" value={formData.numero || ""} onChange={handleInputChange} /></div>
+              <div className="space-y-1.5"><Label>Bairro</Label><Input name="bairro" value={formData.bairro || ""} onChange={handleInputChange} /></div>
+              <div className="space-y-1.5"><Label>Cidade</Label><Input name="cidade" value={formData.cidade || ""} onChange={handleInputChange} /></div>
+              <div className="space-y-1.5"><Label>Estado</Label><Input name="estado" value={formData.estado || ""} onChange={handleInputChange} maxLength={2} placeholder="SP" /></div>
             </div>
           </div>
 
           <div className="rounded-lg border border-border bg-secondary/20 p-4">
             <h3 className="mb-3 text-sm font-semibold">Contato de emergência</h3>
             <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-1.5"><Label>Nome</Label><Input name="emergencia_nome" value={formData.emergencia_nome} onChange={handleInputChange} /></div>
-              <div className="space-y-1.5"><Label>Parentesco</Label><Input name="emergencia_parentesco" value={formData.emergencia_parentesco} onChange={handleInputChange} /></div>
-              <div className="space-y-1.5"><Label>Telefone</Label><Input name="emergencia_telefone" value={formData.emergencia_telefone} onChange={handleInputChange} /></div>
+              <div className="space-y-1.5"><Label>Nome</Label><Input name="emergencia_nome" value={formData.emergencia_nome || ""} onChange={handleInputChange} /></div>
+              <div className="space-y-1.5"><Label>Parentesco</Label><Input name="emergencia_parentesco" value={formData.emergencia_parentesco || ""} onChange={handleInputChange} /></div>
+              <div className="space-y-1.5"><Label>Telefone</Label><Input name="emergencia_telefone" value={formData.emergencia_telefone || ""} onChange={handleInputChange} /></div>
             </div>
           </div>
 
@@ -287,21 +316,21 @@ export default function StudentNew() {
               <input type="file" ref={fotoInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileChange(e, "foto")} />
               <div 
                 onClick={() => fotoInputRef.current?.click()}
-                className={`flex h-24 cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed transition-smooth ${files.foto ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-secondary/20 text-muted-foreground hover:border-primary/40'}`}
+                className={`flex h-24 cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed transition-smooth ${files.foto || formData.foto_url ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-secondary/20 text-muted-foreground hover:border-primary/40'}`}
               >
-                {files.foto ? <Check className="h-5 w-5" /> : <Upload className="h-4 w-4" />}
-                {files.foto ? files.foto.name : "Clique para enviar foto"}
+                {files.foto || formData.foto_url ? <Check className="h-5 w-5" /> : <Upload className="h-4 w-4" />}
+                {files.foto ? files.foto.name : formData.foto_url ? "Foto vinculada (Clique para trocar)" : "Clique para enviar foto"}
               </div>
             </div>
             <div className="space-y-1.5">
               <Label>Quem indicou</Label>
-              <Input name="indicado_por" value={formData.indicado_por} onChange={handleInputChange} placeholder="Nome do indicador" />
+              <Input name="indicado_por" value={formData.indicado_por || ""} onChange={handleInputChange} placeholder="Nome do indicador" />
             </div>
           </div>
 
           <div className="space-y-1.5">
             <Label>Observações internas</Label>
-            <Textarea name="observacoes" value={formData.observacoes} onChange={handleInputChange} placeholder="Notas para a equipe..." rows={3} />
+            <Textarea name="observacoes" value={formData.observacoes || ""} onChange={handleInputChange} placeholder="Notas para a equipe..." rows={3} />
           </div>
 
           <div className="flex justify-end">
@@ -315,7 +344,7 @@ export default function StudentNew() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Plano *</Label>
-              <Select value={formData.plano_id} onValueChange={(v) => handleSelectChange("plano_id", v)}>
+              <Select value={formData.plano_id || ""} onValueChange={(v) => handleSelectChange("plano_id", v)}>
                 <SelectTrigger><SelectValue placeholder="Selecione um plano" /></SelectTrigger>
                 <SelectContent>
                   {planos.map((p) => (
@@ -338,7 +367,11 @@ export default function StudentNew() {
             </div>
             <div className="space-y-1.5">
               <Label>Data de início *</Label>
-              <Input name="data_inicio_plano" type="date" value={formData.data_inicio_plano} onChange={handleInputChange} />
+              <Input name="data_inicio_plano" type="date" value={formData.data_inicio_plano || ""} onChange={handleInputChange} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Data de vencimento</Label>
+              <Input name="data_vencimento_plano" type="date" value={formData.data_vencimento_plano || ""} readOnly className="bg-secondary/20" />
             </div>
           </div>
           <div className="flex justify-between">
@@ -373,10 +406,10 @@ export default function StudentNew() {
                 <input type="file" ref={contratoInputRef} className="hidden" accept=".pdf" onChange={(e) => handleFileChange(e, "contrato")} />
                 <div 
                   onClick={() => contratoInputRef.current?.click()}
-                  className={`flex h-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed transition-all ${files.contrato ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-secondary/20 text-muted-foreground hover:border-primary/40'}`}
+                  className={`flex h-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed transition-all ${files.contrato || formData.contrato_url ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-secondary/20 text-muted-foreground hover:border-primary/40'}`}
                 >
-                  {files.contrato ? <Check className="h-6 w-6" /> : <Upload className="h-5 w-5" />}
-                  <span className="text-xs">{files.contrato ? files.contrato.name : "Clique para enviar PDF"}</span>
+                  {files.contrato || formData.contrato_url ? <Check className="h-6 w-6" /> : <Upload className="h-5 w-5" />}
+                  <span className="text-xs">{files.contrato ? files.contrato.name : formData.contrato_url ? "Contrato vinculado (Clique para trocar)" : "Clique para enviar PDF"}</span>
                 </div>
               </div>
 
@@ -385,10 +418,10 @@ export default function StudentNew() {
                 <input type="file" ref={laudoInputRef} className="hidden" accept=".pdf" onChange={(e) => handleFileChange(e, "laudo")} />
                 <div 
                   onClick={() => laudoInputRef.current?.click()}
-                  className={`flex h-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed transition-all ${files.laudo ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-secondary/20 text-muted-foreground hover:border-primary/40'}`}
+                  className={`flex h-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed transition-all ${files.laudo || formData.laudo_medico_url ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-secondary/20 text-muted-foreground hover:border-primary/40'}`}
                 >
-                  {files.laudo ? <Check className="h-6 w-6" /> : <Upload className="h-5 w-5" />}
-                  <span className="text-xs">{files.laudo ? files.laudo.name : "Clique para enviar PDF"}</span>
+                  {files.laudo || formData.laudo_medico_url ? <Check className="h-6 w-6" /> : <Upload className="h-5 w-5" />}
+                  <span className="text-xs">{files.laudo ? files.laudo.name : formData.laudo_medico_url ? "Laudo vinculado (Clique para trocar)" : "Clique para enviar PDF"}</span>
                 </div>
               </div>
             </div>
@@ -404,7 +437,6 @@ export default function StudentNew() {
                 <p className="text-sm font-semibold">Termo LGPD aceito</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   O aluno autoriza o tratamento dos seus dados pessoais conforme a Lei Geral de Proteção de Dados.
-                  {formData.lgpd_aceito && <span className="ml-2 inline-block font-medium text-primary">✓ Registrado agora</span>}
                 </p>
               </div>
             </label>
@@ -417,12 +449,12 @@ export default function StudentNew() {
                 className="min-w-[160px] bg-gradient-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
               >
                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-                {loading ? "Salvando..." : "Concluir cadastro"}
+                {loading ? "Salvando..." : "Salvar alterações"}
               </Button>
             </div>
           </div>
         </TabsContent>
-    </Tabs>
+      </Tabs>
     </div>
   );
 }

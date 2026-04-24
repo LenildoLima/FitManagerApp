@@ -1,24 +1,29 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Search, UserPlus, Eye, Pencil, Ban } from "lucide-react";
-import { students as allStudents, getPlanName, isInadimplente } from "@/lib/mock-data";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useAlunos } from "@/hooks/useAlunos";
+import { formatarCPF, formatarMoeda } from "@/utils/formatters";
 
 export default function Students() {
+  const { alunos: allStudents, loading, error } = useAlunos();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "inadimplente" | "no-eval" | "ativo">("all");
 
   const filtered = useMemo(() => {
     return allStudents.filter((s) => {
       const matchSearch =
-        s.name.toLowerCase().includes(search.toLowerCase()) || s.cpf.includes(search);
+        s.nome.toLowerCase().includes(search.toLowerCase()) || s.cpf.includes(search);
       if (!matchSearch) return false;
-      if (filter === "inadimplente") return isInadimplente(s.id);
-      if (filter === "no-eval") return s.evaluationStatus === "Sem avaliação";
-      if (filter === "ativo") return s.status === "Ativo";
+      if (filter === "inadimplente") return s.status === 'suspenso'; // Ajuste conforme lógica de inadimplência
+      if (filter === "no-eval") return false; // Ajuste se houver campo de avaliação no Aluno
+      if (filter === "ativo") return s.status === "ativo";
       return true;
     });
-  }, [search, filter]);
+  }, [allStudents, search, filter]);
+
+  if (loading) return <div className="flex h-[80vh] items-center justify-center">Carregando...</div>;
+  if (error) return <div className="flex h-[80vh] items-center justify-center text-destructive">Erro: {error}</div>;
 
   return (
     <div className="space-y-5">
@@ -83,36 +88,35 @@ export default function Students() {
             </thead>
             <tbody className="divide-y divide-border">
               {filtered.map((s) => {
-                const overdue = isInadimplente(s.id);
+                const overdue = s.status === 'suspenso'; // Exemplo
                 return (
                   <tr key={s.id} className="transition-smooth hover:bg-secondary/30">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-xs font-bold">
-                          {s.name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                          {s.nome.split(" ").map((n) => n[0]).slice(0, 2).join("")}
                         </div>
                         <div>
-                          <p className="font-medium">{s.name}</p>
-                          <p className="text-xs text-muted-foreground">{s.cpf}</p>
+                          <p className="font-medium">{s.nome}</p>
+                          <p className="text-xs text-muted-foreground">{formatarCPF(s.cpf)}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{getPlanName(s.planId)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{s.plano ? `${s.plano.nome} — ${formatarMoeda(s.plano.valor)}` : 'Nenhum'}</td>
                     <td className="px-4 py-3">
-                      <StatusBadge variant={s.status === "Ativo" ? "success" : s.status === "Suspenso" ? "warning" : "muted"}>
+                      <StatusBadge variant={s.status === "ativo" ? "success" : s.status === "suspenso" ? "warning" : "muted"}>
                         {s.status}
                       </StatusBadge>
                       {overdue && <StatusBadge variant="destructive" className="ml-1">Inadimplente</StatusBadge>}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{new Date(s.dueDate).toLocaleDateString("pt-BR")}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{s.data_vencimento_plano ? new Date(s.data_vencimento_plano).toLocaleDateString("pt-BR") : '-'}</td>
                     <td className="px-4 py-3">
                       <StatusBadge
                         variant={
-                          s.evaluationStatus === "Aprovada" ? "success" :
-                          s.evaluationStatus === "Sem avaliação" ? "destructive" : "warning"
+                          s.status === "ativo" ? "success" : "warning"
                         }
                       >
-                        {s.evaluationStatus}
+                        {s.status}
                       </StatusBadge>
                     </td>
                     <td className="px-4 py-3">
@@ -120,9 +124,9 @@ export default function Students() {
                         <Link to={`/alunos/${s.id}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-primary" title="Ver perfil">
                           <Eye className="h-4 w-4" />
                         </Link>
-                        <button className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Editar">
+                        <Link to={`/alunos/editar/${s.id}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Editar">
                           <Pencil className="h-4 w-4" />
-                        </button>
+                        </Link>
                         <button className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-destructive" title="Bloquear">
                           <Ban className="h-4 w-4" />
                         </button>
