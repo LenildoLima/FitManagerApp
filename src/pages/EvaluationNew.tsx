@@ -94,6 +94,9 @@ export default function EvaluationNew() {
   const [height, setHeight] = useState<number | "">("");
   const [cref, setCref] = useState("");
   const [level, setLevel] = useState("");
+  const [proximaAvaliacao, setProximaAvaliacao] = useState("");
+  const [restricoes, setRestricoes] = useState("");
+  const [parecer, setParecer] = useState("");
 
   const parqAnyYes = parq.some((p) => p === true);
   const parqAllAnswered = parq.every((p) => p !== null);
@@ -123,6 +126,9 @@ export default function EvaluationNew() {
         data_avaliacao: new Date().toISOString(),
         cref,
         nivel_condicionamento: level as any,
+        proxima_avaliacao: proximaAvaliacao || null,
+        restricoes: restricoes || null,
+        parecer: parecer || null,
         status: 'aprovada'
       });
       toast.success(`${student.nome} foi liberado(a) para treino!`);
@@ -362,14 +368,24 @@ export default function EvaluationNew() {
                 <Select value={level} onValueChange={setLevel}>
                   <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ini">Iniciante</SelectItem>
-                    <SelectItem value="int">Intermediário</SelectItem>
-                    <SelectItem value="ava">Avançado</SelectItem>
+                    <SelectItem value="iniciante">Iniciante</SelectItem>
+                    <SelectItem value="intermediario">Intermediário</SelectItem>
+                    <SelectItem value="avancado">Avançado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5"><Label>Próxima avaliação</Label><Input type="date" /></div>
-              <div className="space-y-1.5 md:col-span-2"><Label>Observações e restrições</Label><Textarea rows={3} /></div>
+              <div className="space-y-1.5">
+                <Label>Próxima avaliação</Label>
+                <Input type="date" value={proximaAvaliacao} onChange={(e) => setProximaAvaliacao(e.target.value)} />
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label>Observações e restrições</Label>
+                <Textarea rows={3} value={restricoes} onChange={(e) => setRestricoes(e.target.value)} placeholder="Ex: Evitar exercícios de alto impacto..." />
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label>Parecer do avaliador</Label>
+                <Textarea rows={3} value={parecer} onChange={(e) => setParecer(e.target.value)} placeholder="Resumo do condicionamento físico..." />
+              </div>
               <div className="space-y-1.5 md:col-span-2">
                 <Label>CREF do profissional responsável *</Label>
                 <Input value={cref} onChange={(e) => setCref(e.target.value)} placeholder="Ex: 000000-G/SP" />

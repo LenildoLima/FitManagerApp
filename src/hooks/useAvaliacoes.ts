@@ -16,7 +16,10 @@ export function useAvaliacoes(alunoId?: string) {
       query = query.eq('aluno_id', alunoId)
     }
 
-    query.then(({ data }) => {
+    query.then(({ data, error }) => {
+      if (error) {
+        console.error("Erro ao buscar avaliações:", error);
+      }
       setAvaliacoes(data || [])
       setLoading(false)
     })

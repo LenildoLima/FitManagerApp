@@ -4,6 +4,9 @@ import { Link } from "react-router-dom";
 import { useDashboard } from "@/hooks/useDashboard";
 import { useAlunos } from "@/hooks/useAlunos";
 import { useCobrancas } from "@/hooks/useCobrancas";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
+import { useEffect, useState } from "react";
 
 const iconBg: Record<string, string> = {
   primary: "bg-primary/15 text-primary",
@@ -32,8 +35,35 @@ export default function Dashboard() {
   const { stats, loading: loadingStats } = useDashboard();
   const { alunos, loading: loadingAlunos } = useAlunos();
   const { cobrancas, loading: loadingCobrancas } = useCobrancas();
+  const { perfil } = useAuth();
+  const [fichasVencendo, setFichasVencendo] = useState<any[]>([]);
+  const [loadingFichas, setLoadingFichas] = useState(true);
 
-  if (loadingStats || loadingAlunos || loadingCobrancas) {
+  useEffect(() => {
+    async function fetchFichasVencendo() {
+      try {
+        const hoje = new Date().toISOString().split('T')[0];
+        const em7dias = new Date(Date.now() + 7*24*60*60*1000).toISOString().split('T')[0];
+
+        const { data } = await supabase
+          .from('fichas_treino')
+          .select('*, aluno:alunos(nome)')
+          .eq('status', 'ativa')
+          .lte('data_validade', em7dias)
+          .order('data_validade');
+
+        setFichasVencendo(data || []);
+      } catch (error) {
+        console.error("Erro ao carregar fichas vencendo:", error);
+      } finally {
+        setLoadingFichas(false);
+      }
+    }
+
+    fetchFichasVencendo();
+  }, []);
+
+  if (loadingStats || loadingAlunos || loadingCobrancas || loadingFichas) {
     return <div className="flex h-[80vh] items-center justify-center">Carregando...</div>;
   }
 
@@ -120,6 +150,41 @@ export default function Dashboard() {
                 );
               })}
           </div>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border border-border bg-card p-5">
+           <div className="mb-4 flex items-center justify-between">
+             <h2 className="font-semibold text-warning">Fichas vencidas ou a vencer em 7 dias</h2>
+             <Link to="/fichas" className="text-xs text-primary hover:underline">Ver todas</Link>
+           </div>
+           
+           <div className="space-y-3">
+             {fichasVencendo.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">Nenhuma ficha vencendo nos próximos 7 dias.</p>
+             ) : (
+                fichasVencendo.map(ficha => {
+                   const diffTime = new Date(ficha.data_validade).getTime() - new Date().getTime();
+                   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                   const isVencida = diffDays < 0;
+                   
+                   return (
+                      <div key={ficha.id} className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 p-3">
+                         <div>
+                            <p className="text-sm font-medium">{ficha.aluno?.nome}</p>
+                            <p className="text-xs text-muted-foreground">{ficha.nome}</p>
+                         </div>
+                         <div className="text-right">
+                            <StatusBadge variant={isVencida ? "destructive" : "warning"}>
+                               {isVencida ? `Venceu há ${Math.abs(diffDays)} dias` : `Vence em ${diffDays} dias`}
+                            </StatusBadge>
+                         </div>
+                      </div>
+                   );
+                })
+             )}
+           </div>
         </div>
       </div>
     </div>

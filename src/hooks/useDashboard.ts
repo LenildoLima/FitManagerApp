@@ -44,7 +44,7 @@ export function useDashboard() {
           .from('alunos')
           .select('id', { count: 'exact', head: true })
           .eq('status', 'ativo')
-          .not('id', 'in', `(${idsComAvaliacao.join(',')})`)
+          .not('id', 'in', idsComAvaliacao)
         semAvaliacaoCount = count || 0
       }
 
