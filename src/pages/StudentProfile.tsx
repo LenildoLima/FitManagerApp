@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Calendar, Phone, Mail, ClipboardList, Dumbbell, DollarSign, AlertTriangle, Printer } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -7,12 +8,49 @@ import { useAvaliacoes } from "@/hooks/useAvaliacoes";
 import { Button } from "@/components/ui/button";
 import { gerarContrato } from "@/utils/gerarContrato";
 import { formatarCPF, formatarTelefone, formatarMoeda } from "@/utils/formatters";
+import { supabase } from "@/lib/supabase";
+
 
 export default function StudentProfile() {
   const { id } = useParams();
   const { alunos, loading: loadingAlunos } = useAlunos();
   const { cobrancas, loading: loadingCobrancas } = useCobrancas(id);
   const { avaliacoes, loading: loadingAvaliacoes } = useAvaliacoes(id);
+
+  const [fichaAtiva, setFichaAtiva] = useState<any>(null);
+  const [loadingFicha, setLoadingFicha] = useState(true);
+
+  useEffect(() => {
+    if (id) {
+      const fetchFicha = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('fichas_treino')
+            .select(`
+              *,
+              divisoes:divisoes_treino(
+                *,
+                itens:itens_treino(*, exercicio:exercicios(*))
+              )
+            `)
+            .eq('aluno_id', id)
+            .eq('status', 'ativa')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          
+          if (!error && data) {
+            setFichaAtiva(data);
+          }
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setLoadingFicha(false);
+        }
+      };
+      fetchFicha();
+    }
+  }, [id]);
 
   const student = alunos.find((s) => s.id === id);
 
@@ -30,9 +68,9 @@ export default function StudentProfile() {
 
   const overdue = cobrancas.some((p) => p.status === "atrasado");
   const noEval = avaliacoes.length === 0;
-  const workoutExpired = false; // Ajustar quando houver hook de fichas
+  const workoutExpired = fichaAtiva && new Date(fichaAtiva.data_validade) < new Date();
   const studentPayments = cobrancas;
-  const studentWorkout = null; // Ajustar quando houver hook de fichas
+  const studentWorkout = fichaAtiva;
 
   return (
     <div className="space-y-6">
@@ -141,9 +179,74 @@ export default function StudentProfile() {
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="flex items-center gap-2 font-semibold"><Dumbbell className="h-4 w-4 text-primary" /> Ficha de treino atual</h3>
-              {!noEval && <Link to={`/fichas/nova/${student.id}`} className="text-xs text-primary hover:underline">Nova ficha</Link>}
+              {!noEval && !fichaAtiva && (
+                <Link to={`/fichas/nova/${student.id}`} className="text-xs text-primary hover:underline">Nova ficha</Link>
+              )}
             </div>
-            <p className="text-sm text-muted-foreground">Funcionalidade de fichas será integrada em breve.</p>
+            {loadingFicha ? (
+              <p className="text-sm text-muted-foreground">Carregando ficha de treino...</p>
+            ) : fichaAtiva ? (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-1">
+                  <h4 className="font-bold text-lg">{fichaAtiva.nome}</h4>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <StatusBadge variant={workoutExpired ? "destructive" : "success"}>
+                      {workoutExpired ? "Vencida" : "Ativa"}
+                    </StatusBadge>
+                    <span className="flex items-center rounded-full border border-border px-2 py-0.5 text-muted-foreground capitalize">
+                      {fichaAtiva.objetivo?.replace('_', ' ')}
+                    </span>
+                    <span className="flex items-center rounded-full border border-border px-2 py-0.5 text-muted-foreground capitalize">
+                      {fichaAtiva.nivel}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
+                  <div>
+                    <p className="text-xs uppercase tracking-wider">Início</p>
+                    <p className="font-medium text-foreground">{new Date(fichaAtiva.data_inicio).toLocaleDateString("pt-BR")}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wider">Validade</p>
+                    <p className="font-medium text-foreground">{new Date(fichaAtiva.data_validade).toLocaleDateString("pt-BR")}</p>
+                  </div>
+                </div>
+
+                {fichaAtiva.divisoes && fichaAtiva.divisoes.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase text-muted-foreground">Divisões</p>
+                    <div className="flex flex-col gap-2">
+                      {fichaAtiva.divisoes.map((div: any) => (
+                        <div key={div.id} className="text-sm rounded border border-border p-2 bg-secondary/30">
+                          <span className="font-semibold">Treino {div.letra}</span> — {div.nome_grupo} ({div.itens?.length || 0} exercícios)
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-2">
+                  <Link to={`/fichas/${fichaAtiva.id}`}>
+                    <Button variant="outline" size="sm" className="w-full text-xs">Ver ficha completa</Button>
+                  </Link>
+                  <Link to={`/fichas/${fichaAtiva.id}/editar`}>
+                    <Button variant="outline" size="sm" className="w-full text-xs">Editar ficha</Button>
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <p className="text-sm text-muted-foreground mb-3">Nenhuma ficha ativa. Clique em 'Nova ficha' para prescrever.</p>
+                {!noEval && (
+                  <Link to={`/fichas/nova/${student.id}`}>
+                    <Button size="sm" className="gap-2">
+                      <Dumbbell className="h-4 w-4" /> Nova ficha
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">

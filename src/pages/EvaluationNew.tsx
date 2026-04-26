@@ -11,6 +11,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { toast } from "sonner";
 import { useAlunos } from "@/hooks/useAlunos";
 import { useAvaliacoes } from "@/hooks/useAvaliacoes";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 const STEPS = ["Anamnese", "PAR-Q", "Antropometria", "Testes Físicos", "Parecer"];
 
@@ -27,30 +29,7 @@ const PARQ_QUESTIONS = [
 const OBJECTIVES = ["Perda de peso", "Ganho de massa", "Condicionamento", "Reabilitação", "Bem-estar", "Performance"];
 const DISEASES = ["Diabetes", "Hipertensão", "Cardiopatia", "Osteoporose", "Artrite", "Asma", "Hipotireoidismo"];
 
-function CheckGroup({ options, value, onChange }: { options: string[]; value: string[]; onChange: (v: string[]) => void }) {
-  const toggle = (opt: string) => {
-    onChange(value.includes(opt) ? value.filter((v) => v !== opt) : [...value, opt]);
-  };
-  return (
-    <div className="flex flex-wrap gap-2">
-      {options.map((opt) => {
-        const active = value.includes(opt);
-        return (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => toggle(opt)}
-            className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-smooth ${
-              active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {opt}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+
 
 function YesNo({ value, onChange }: { value: boolean | null; onChange: (v: boolean) => void }) {
   return (
@@ -82,13 +61,30 @@ export default function EvaluationNew() {
   const { studentId } = useParams();
   const navigate = useNavigate();
   const { alunos, loading: loadingAlunos } = useAlunos();
-  const { criarAvaliacao } = useAvaliacoes();
+  const { user } = useAuth();
   
   const student = alunos.find((s) => s.id === studentId);
 
   const [step, setStep] = useState(0);
   const [objectives, setObjectives] = useState<string[]>([]);
   const [diseases, setDiseases] = useState<string[]>([]);
+  
+  const toggleObjetivo = (valor: string) => {
+    setObjectives((prev) => {
+      const novo = prev.includes(valor) ? prev.filter((o) => o !== valor) : [...prev, valor];
+      console.log('objetivos atualizados:', novo);
+      return novo;
+    });
+  };
+
+  const toggleDisease = (valor: string) => {
+    setDiseases((prev) => {
+      const novo = prev.includes(valor) ? prev.filter((o) => o !== valor) : [...prev, valor];
+      console.log('doenças atualizadas:', novo);
+      return novo;
+    });
+  };
+  const [gestante, setGestante] = useState<boolean | null>(null);
   const [parq, setParq] = useState<(boolean | null)[]>(Array(7).fill(null));
   const [weight, setWeight] = useState<number | "">("");
   const [height, setHeight] = useState<number | "">("");
@@ -97,6 +93,35 @@ export default function EvaluationNew() {
   const [proximaAvaliacao, setProximaAvaliacao] = useState("");
   const [restricoes, setRestricoes] = useState("");
   const [parecer, setParecer] = useState("");
+  const [protocolo, setProtocolo] = useState("");
+  const [dobras, setDobras] = useState<Record<string, number | "">>({});
+  
+  const [circs, setCircs] = useState<Record<string, number | "">>({});
+  const [paSistolica, setPaSistolica] = useState<number | "">("");
+  const [paDiastolica, setPaDiastolica] = useState<number | "">("");
+  const [fcRepouso, setFcRepouso] = useState<number | "">("");
+  const [testesFisicos, setTestesFisicos] = useState({
+    wells_resultado_cm: "",
+    abdominal_1min: "",
+    flexoes_1min: "",
+    step_fc_pos_teste: "",
+    observacoes: ""
+  });
+  
+  const [anamnese, setAnamnese] = useState({
+    atividade_anterior: "",
+    quando_parou: "",
+    doencas_outras: "",
+    medicamentos: "",
+    suplementos: "",
+    lesoes: "",
+    alergias: "",
+    tabagismo: "",
+    alcool: "",
+    sono: "",
+    ocupacao: "",
+    regime: ""
+  });
 
   const parqAnyYes = parq.some((p) => p === true);
   const parqAllAnswered = parq.every((p) => p !== null);
@@ -107,33 +132,194 @@ export default function EvaluationNew() {
   }, [weight, height]);
   const bmiInfo = bmi ? bmiClassification(bmi) : null;
 
+  const dobrasRequired = useMemo(() => {
+    if (!protocolo) return [];
+    if (protocolo === "p3" || protocolo === "jp") {
+      return student?.sexo_biologico === "feminino" 
+        ? ["Tríceps", "Supra-ilíaca", "Coxa"]
+        : ["Peitoral", "Abdômen", "Coxa"];
+    }
+    if (protocolo === "p7") {
+      return ["Peitoral", "Axilar média", "Tríceps", "Subescapular", "Abdominal", "Supra-ilíaca", "Coxa"];
+    }
+    return [];
+  }, [protocolo, student?.sexo_biologico]);
+
+  const calcPercGordura = useMemo(() => {
+    if (!protocolo || dobrasRequired.length === 0) return null;
+    
+    const allFilled = dobrasRequired.every(d => dobras[d] !== undefined && dobras[d] !== "");
+    if (!allFilled) return null;
+    
+    const soma = dobrasRequired.reduce((acc, d) => acc + Number(dobras[d]), 0);
+    
+    let idade = 30;
+    if (student?.data_nascimento) {
+       idade = new Date().getFullYear() - new Date(student.data_nascimento).getFullYear();
+    }
+    
+    if (protocolo === "p3" || protocolo === "jp") {
+      let densidade = 0;
+      if (student?.sexo_biologico === "feminino") {
+        densidade = 1.0994921 - (0.0009929 * soma) + (0.0000023 * Math.pow(soma, 2)) - (0.0001392 * idade);
+      } else {
+        densidade = 1.1093800 - (0.0008267 * soma) + (0.0000016 * Math.pow(soma, 2)) - (0.0002574 * idade);
+      }
+      return ((4.95 / densidade) - 4.50) * 100;
+    }
+    
+    if (protocolo === "p7") {
+       let densidade = 0;
+       if (student?.sexo_biologico === "feminino") {
+          densidade = 1.0970 - (0.00046971 * soma) + (0.00000056 * Math.pow(soma, 2)) - (0.00012828 * idade);
+       } else {
+          densidade = 1.112 - (0.00043499 * soma) + (0.00000055 * Math.pow(soma, 2)) - (0.00028826 * idade);
+       }
+       return ((4.95 / densidade) - 4.50) * 100;
+    }
+
+    return null;
+  }, [protocolo, dobras, dobrasRequired, student]);
+
+  const massaGorda = useMemo(() => {
+    if (calcPercGordura !== null && weight !== "") {
+      return (Number(weight) * (calcPercGordura / 100));
+    }
+    return null;
+  }, [calcPercGordura, weight]);
+
+  const massaMagra = useMemo(() => {
+    if (massaGorda !== null && weight !== "") {
+      return Number(weight) - massaGorda;
+    }
+    return null;
+  }, [massaGorda, weight]);
+
   if (loadingAlunos) return <div className="flex h-[80vh] items-center justify-center">Carregando...</div>;
   if (!student) return <div className="p-10 text-center">Aluno não encontrado.</div>;
 
-  const handleApprove = async () => {
-    if (!cref.trim()) {
+  const handleSaveFlow = async (statusFinal: 'aprovada' | 'aguardando_laudo') => {
+    console.log('=== SAVE INICIADO ===')
+    console.log('objectives no momento do save:', objectives)
+    console.log('diseases no momento do save:', diseases)
+
+    if (!cref.trim() && statusFinal === 'aprovada') {
       toast.error("CREF do profissional é obrigatório.");
       return;
     }
-    if (parqAnyYes) {
+    if (parqAnyYes && statusFinal === 'aprovada') {
       toast.error("PAR-Q exige laudo médico antes da liberação.");
       return;
     }
 
     try {
-      await criarAvaliacao({
-        aluno_id: student.id,
-        data_avaliacao: new Date().toISOString(),
-        cref,
-        nivel_condicionamento: level as any,
-        proxima_avaliacao: proximaAvaliacao || null,
-        restricoes: restricoes || null,
-        parecer: parecer || null,
-        status: 'aprovada'
+      // PASSO 1
+      const { data: avaliacaoArr, error: errorAvaliacao } = await supabase
+        .from('avaliacoes_fisicas')
+        .insert({
+          aluno_id: student.id,
+          professor_id: user?.id || null, // Assuming user ID could be fetched from Auth if available
+          cref: cref || null,
+          status: statusFinal,
+          data_avaliacao: new Date().toISOString().split('T')[0],
+          proxima_avaliacao: proximaAvaliacao || null,
+          nivel_condicionamento: level || 'iniciante',
+          parecer: parecer || null,
+          restricoes: restricoes || null,
+        })
+        .select();
+      
+      if (errorAvaliacao) throw errorAvaliacao;
+      if (!avaliacaoArr || avaliacaoArr.length === 0) {
+        throw new Error("Supabase bloqueou o retorno do ID (RLS Policy). Verifique se INSERT na tabela avaliacoes_fisicas está liberado para SELECT pelo professor.");
+      }
+      const avaliacaoId = avaliacaoArr[0].id;
+
+      console.log('objetivos antes de salvar (pós-await):', objectives);
+      console.log('medidas antes de salvar:', { circs, paSistolica, paDiastolica, fcRepouso });
+      console.log('testes antes de salvar:', testesFisicos);
+
+      // PASSO 2
+      const { error: errorAn } = await supabase.from('anamnese').insert({
+        avaliacao_id: avaliacaoId,
+        objetivos: objectives.length > 0 ? objectives : [],
+        praticou_antes: !!anamnese.atividade_anterior,
+        atividade_anterior: anamnese.atividade_anterior || null,
+        tempo_afastamento: anamnese.quando_parou || null,
+        doencas: diseases || [],
+        doencas_outras: anamnese.doencas_outras || null,
+        usa_medicamentos: !!anamnese.medicamentos,
+        medicamentos_desc: anamnese.medicamentos || null,
+        usa_suplementos: !!anamnese.suplementos,
+        suplementos_desc: anamnese.suplementos || null,
+        tem_lesoes: !!anamnese.lesoes,
+        lesoes_desc: anamnese.lesoes || null,
+        tabagismo: anamnese.tabagismo || null,
+        alcool: anamnese.alcool || null,
+        qualidade_sono: anamnese.sono || null,
+        ocupacao: anamnese.ocupacao || null,
+        regime_alimentar: anamnese.regime || null,
+        alergias_alimentares: anamnese.alergias || null,
+        gestante_ou_pos_parto: gestante,
       });
-      toast.success(`${student.nome} foi liberado(a) para treino!`);
+      if (errorAn) throw errorAn;
+
+      // PASSO 3
+      const { error: errorParq } = await supabase.from('parq').insert({
+        avaliacao_id: avaliacaoId,
+        q1: parq[0] || false,
+        q2: parq[1] || false,
+        q3: parq[2] || false,
+        q4: parq[3] || false,
+        q5: parq[4] || false,
+        q6: parq[5] || false,
+        q7: parq[6] || false,
+      });
+      if (errorParq) throw errorParq;
+
+      // PASSO 4
+      const { error: errorMed } = await supabase.from('medidas_antropometricas').insert({
+        avaliacao_id: avaliacaoId,
+        peso_kg: Number(weight) || null,
+        altura_cm: Number(height) || null,
+        circ_cintura: circs["Cintura"] || null,
+        circ_quadril: circs["Quadril"] || null,
+        circ_braco_d_rel: circs["Braço D relax."] || null,
+        circ_braco_d_cont: circs["Braço D contr."] || null,
+        circ_braco_e_rel: circs["Braço E relax."] || null,
+        circ_braco_e_cont: circs["Braço E contr."] || null,
+        circ_antebraco: circs["Antebraço"] || null,
+        circ_coxa_d: circs["Coxa D"] || null,
+        circ_coxa_e: circs["Coxa E"] || null,
+        circ_panturrilha_d: circs["Panturrilha D"] || null,
+        circ_panturrilha_e: circs["Panturrilha E"] || null,
+        circ_torax: circs["Tórax"] || null,
+        circ_pescoco: circs["Pescoço"] || null,
+        protocolo_gordura: protocolo || null,
+        perc_gordura: calcPercGordura || null,
+        massa_gorda_kg: massaGorda || null,
+        massa_magra_kg: massaMagra || null,
+        pressao_sistolica: Number(paSistolica) || null,
+        pressao_diastolica: Number(paDiastolica) || null,
+        fc_repouso: Number(fcRepouso) || null,
+      });
+      if (errorMed) throw errorMed;
+
+      // PASSO 5
+      const { error: errorTes } = await supabase.from('testes_fisicos').insert({
+        avaliacao_id: avaliacaoId,
+        wells_resultado_cm: Number(testesFisicos.wells_resultado_cm) || null,
+        abdominal_1min: Number(testesFisicos.abdominal_1min) || null,
+        flexoes_1min: Number(testesFisicos.flexoes_1min) || null,
+        step_fc_pos_teste: Number(testesFisicos.step_fc_pos_teste) || null,
+        observacoes: testesFisicos.observacoes || null,
+      });
+      if (errorTes) throw errorTes;
+
+      toast.success(statusFinal === 'aprovada' ? `${student.nome} foi liberado(a) para treino!` : `Avaliação aguardando laudo para ${student.nome}.`);
       navigate(`/alunos/${student.id}`);
     } catch (error: any) {
+      console.error(error);
       toast.error("Erro ao salvar avaliação: " + error.message);
     }
   };
@@ -181,28 +367,54 @@ export default function EvaluationNew() {
             <h2 className="text-lg font-semibold">Anamnese</h2>
             <div className="space-y-2">
               <Label>Objetivo</Label>
-              <CheckGroup options={OBJECTIVES} value={objectives} onChange={setObjectives} />
+              <div className="flex flex-wrap gap-2">
+                {OBJECTIVES.map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => toggleObjetivo(opt)}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-smooth ${
+                      objectives.includes(opt) ? "border-primary bg-primary text-primary-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1.5"><Label>Já praticou atividade física?</Label><Input placeholder="Modalidade, tempo..." /></div>
-              <div className="space-y-1.5"><Label>Quando parou?</Label><Input placeholder="Há quanto tempo" /></div>
+              <div className="space-y-1.5"><Label>Já praticou atividade física?</Label><Input placeholder="Modalidade, tempo..." value={anamnese.atividade_anterior} onChange={e => setAnamnese({...anamnese, atividade_anterior: e.target.value})} /></div>
+              <div className="space-y-1.5"><Label>Quando parou?</Label><Input placeholder="Há quanto tempo" value={anamnese.quando_parou} onChange={e => setAnamnese({...anamnese, quando_parou: e.target.value})} /></div>
             </div>
 
             <div className="space-y-2">
               <Label>Doenças pré-existentes</Label>
-              <CheckGroup options={DISEASES} value={diseases} onChange={setDiseases} />
-              <Input placeholder="Outras doenças (descreva)" className="mt-2" />
+              <div className="flex flex-wrap gap-2">
+                {DISEASES.map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => toggleDisease(opt)}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-smooth ${
+                      diseases.includes(opt) ? "border-primary bg-primary text-primary-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+              <Input placeholder="Outras doenças (descreva)" className="mt-2" value={anamnese.doencas_outras} onChange={e => setAnamnese({...anamnese, doencas_outras: e.target.value})} />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1.5"><Label>Medicamentos contínuos</Label><Input placeholder="Nome e dosagem" /></div>
-              <div className="space-y-1.5"><Label>Suplementos em uso</Label><Input placeholder="Quais?" /></div>
-              <div className="space-y-1.5"><Label>Cirurgias / lesões</Label><Input placeholder="Descrição" /></div>
-              <div className="space-y-1.5"><Label>Alergias alimentares</Label><Input /></div>
+              <div className="space-y-1.5"><Label>Medicamentos contínuos</Label><Input placeholder="Nome e dosagem" value={anamnese.medicamentos} onChange={e => setAnamnese({...anamnese, medicamentos: e.target.value})} /></div>
+              <div className="space-y-1.5"><Label>Suplementos em uso</Label><Input placeholder="Quais?" value={anamnese.suplementos} onChange={e => setAnamnese({...anamnese, suplementos: e.target.value})} /></div>
+              <div className="space-y-1.5"><Label>Cirurgias / lesões</Label><Input placeholder="Descrição" value={anamnese.lesoes} onChange={e => setAnamnese({...anamnese, lesoes: e.target.value})} /></div>
+              <div className="space-y-1.5"><Label>Alergias alimentares</Label><Input value={anamnese.alergias} onChange={e => setAnamnese({...anamnese, alergias: e.target.value})} /></div>
               <div className="space-y-1.5">
                 <Label>Tabagismo</Label>
-                <Select><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <Select value={anamnese.tabagismo} onValueChange={v => setAnamnese({...anamnese, tabagismo: v})}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="nao">Não</SelectItem>
                     <SelectItem value="sim">Sim</SelectItem>
@@ -212,7 +424,7 @@ export default function EvaluationNew() {
               </div>
               <div className="space-y-1.5">
                 <Label>Consumo de álcool</Label>
-                <Select><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <Select value={anamnese.alcool} onValueChange={v => setAnamnese({...anamnese, alcool: v})}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="nao">Não</SelectItem>
                     <SelectItem value="ev">Eventual</SelectItem>
@@ -222,7 +434,7 @@ export default function EvaluationNew() {
               </div>
               <div className="space-y-1.5">
                 <Label>Qualidade do sono</Label>
-                <Select><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <Select value={anamnese.sono} onValueChange={v => setAnamnese({...anamnese, sono: v})}><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="boa">Boa</SelectItem>
                     <SelectItem value="reg">Regular</SelectItem>
@@ -230,14 +442,37 @@ export default function EvaluationNew() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5"><Label>Ocupação profissional</Label><Input /></div>
-              <div className="space-y-1.5 md:col-span-2"><Label>Regime alimentar</Label><Textarea rows={2} /></div>
+              <div className="space-y-1.5"><Label>Ocupação profissional</Label><Input value={anamnese.ocupacao} onChange={e => setAnamnese({...anamnese, ocupacao: e.target.value})} /></div>
+              <div className="space-y-1.5 md:col-span-2"><Label>Regime alimentar</Label><Textarea rows={2} value={anamnese.regime} onChange={e => setAnamnese({...anamnese, regime: e.target.value})} /></div>
             </div>
 
             {student.sexo_biologico === "feminino" && (
               <div className="rounded-lg border border-border bg-secondary/20 p-4">
                 <Label>Gestante ou pós-parto recente?</Label>
-                <div className="mt-2"><YesNo value={null} onChange={() => {}} /></div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGestante(true)}
+                    className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-smooth ${
+                      gestante === true
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Sim
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGestante(false)}
+                    className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-smooth ${
+                      gestante === false
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Não
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -298,17 +533,24 @@ export default function EvaluationNew() {
               <h3 className="mb-2 text-sm font-semibold text-muted-foreground">Circunferências (cm)</h3>
               <div className="grid gap-3 md:grid-cols-4">
                 {["Cintura", "Quadril", "Braço D relax.", "Braço D contr.", "Braço E relax.", "Braço E contr.", "Antebraço", "Coxa D", "Coxa E", "Panturrilha D", "Panturrilha E", "Tórax", "Pescoço"].map((c) => (
-                  <div key={c} className="space-y-1"><Label className="text-xs">{c}</Label><Input type="number" /></div>
+                  <div key={c} className="space-y-1">
+                    <Label className="text-xs">{c}</Label>
+                    <Input 
+                      type="number" 
+                      value={circs[c] ?? ""}
+                      onChange={(e) => setCircs({ ...circs, [c]: e.target.value === "" ? "" : Number(e.target.value) })}
+                    />
+                  </div>
                 ))}
               </div>
             </div>
 
             <div>
-              <h3 className="mb-2 text-sm font-semibold text-muted-foreground">% Gordura</h3>
+              <h3 className="mb-2 text-sm font-semibold text-muted-foreground">% Gordura e Dobras Cutâneas</h3>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>Protocolo</Label>
-                  <Select>
+                  <Select value={protocolo} onValueChange={(v) => { setProtocolo(v); setDobras({}); }}>
                     <SelectTrigger><SelectValue placeholder="Selecione protocolo" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="p3">Pollock 3 dobras</SelectItem>
@@ -319,15 +561,56 @@ export default function EvaluationNew() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>% Gordura calculado</Label>
-                  <div className="flex h-10 items-center rounded-md border border-border bg-secondary/40 px-3 text-xs text-muted-foreground">— Preencha as dobras</div>
+                  <div className="flex h-10 items-center rounded-md border border-border bg-secondary/40 px-3 font-semibold">
+                    {calcPercGordura !== null ? (
+                      <span className="text-primary">{calcPercGordura.toFixed(2)}%</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground font-normal">— Preencha as dobras</span>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {dobrasRequired.length > 0 && (
+                <div className="mt-4">
+                   <h4 className="mb-2 text-sm font-semibold text-muted-foreground">Dobras (mm)</h4>
+                   <div className="grid gap-3 md:grid-cols-4">
+                     {dobrasRequired.map(d => (
+                        <div key={d} className="space-y-1">
+                           <Label className="text-xs">{d}</Label>
+                           <div className="relative">
+                             <Input 
+                               type="number" 
+                               value={dobras[d] ?? ""} 
+                               onChange={e => setDobras({...dobras, [d]: e.target.value === "" ? "" : Number(e.target.value)})}
+                               className="pr-8 text-sm"
+                             />
+                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">mm</span>
+                           </div>
+                        </div>
+                     ))}
+                   </div>
+                </div>
+              )}
+
+              {calcPercGordura !== null && massaGorda !== null && massaMagra !== null && (
+                 <div className="mt-4 grid gap-4 md:grid-cols-2">
+                   <div className="rounded-lg border border-success/30 bg-success/5 p-3">
+                      <p className="text-xs text-muted-foreground uppercase font-bold">Massa Gorda</p>
+                      <p className="text-lg font-semibold">{massaGorda.toFixed(1)} <span className="text-sm font-normal">kg</span></p>
+                   </div>
+                   <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                      <p className="text-xs text-muted-foreground uppercase font-bold">Massa Magra</p>
+                      <p className="text-lg font-semibold">{massaMagra.toFixed(1)} <span className="text-sm font-normal">kg</span></p>
+                   </div>
+                 </div>
+              )}
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-1.5"><Label>PA Sistólica (mmHg)</Label><Input type="number" /></div>
-              <div className="space-y-1.5"><Label>PA Diastólica (mmHg)</Label><Input type="number" /></div>
-              <div className="space-y-1.5"><Label>FC repouso (bpm)</Label><Input type="number" /></div>
+              <div className="space-y-1.5"><Label>PA Sistólica (mmHg)</Label><Input type="number" value={paSistolica} onChange={e => setPaSistolica(e.target.value === "" ? "" : Number(e.target.value))} /></div>
+              <div className="space-y-1.5"><Label>PA Diastólica (mmHg)</Label><Input type="number" value={paDiastolica} onChange={e => setPaDiastolica(e.target.value === "" ? "" : Number(e.target.value))} /></div>
+              <div className="space-y-1.5"><Label>FC repouso (bpm)</Label><Input type="number" value={fcRepouso} onChange={e => setFcRepouso(e.target.value === "" ? "" : Number(e.target.value))} /></div>
             </div>
 
             <div>
@@ -349,12 +632,12 @@ export default function EvaluationNew() {
             <h2 className="text-lg font-semibold">Testes de Capacidade Física</h2>
             <p className="text-xs text-muted-foreground">Todos os testes são opcionais.</p>
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1.5"><Label>Banco de Wells (cm)</Label><Input type="number" /></div>
-              <div className="space-y-1.5"><Label>Resistência abdominal (1 min)</Label><Input type="number" /></div>
-              <div className="space-y-1.5"><Label>Flexões (1 min)</Label><Input type="number" /></div>
-              <div className="space-y-1.5"><Label>FC após Step Test (bpm)</Label><Input type="number" /></div>
+              <div className="space-y-1.5"><Label>Banco de Wells (cm)</Label><Input type="number" value={testesFisicos.wells_resultado_cm} onChange={e => setTestesFisicos({...testesFisicos, wells_resultado_cm: e.target.value})} /></div>
+              <div className="space-y-1.5"><Label>Resistência abdominal (1 min)</Label><Input type="number" value={testesFisicos.abdominal_1min} onChange={e => setTestesFisicos({...testesFisicos, abdominal_1min: e.target.value})} /></div>
+              <div className="space-y-1.5"><Label>Flexões (1 min)</Label><Input type="number" value={testesFisicos.flexoes_1min} onChange={e => setTestesFisicos({...testesFisicos, flexoes_1min: e.target.value})} /></div>
+              <div className="space-y-1.5"><Label>FC após Step Test (bpm)</Label><Input type="number" value={testesFisicos.step_fc_pos_teste} onChange={e => setTestesFisicos({...testesFisicos, step_fc_pos_teste: e.target.value})} /></div>
             </div>
-            <div className="space-y-1.5"><Label>Observações do avaliador</Label><Textarea rows={3} /></div>
+            <div className="space-y-1.5"><Label>Observações do avaliador</Label><Textarea rows={3} value={testesFisicos.observacoes} onChange={e => setTestesFisicos({...testesFisicos, observacoes: e.target.value})} /></div>
           </div>
         )}
 
@@ -400,13 +683,13 @@ export default function EvaluationNew() {
 
             <div className="flex flex-wrap gap-3">
               <Button
-                onClick={handleApprove}
+                onClick={() => handleSaveFlow('aprovada')}
                 disabled={parqAnyYes}
                 className="bg-gradient-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"
               >
                 <Check className="mr-2 h-4 w-4" /> Aprovar e liberar para treino
               </Button>
-              <Button variant="outline" className="border-warning/40 text-warning hover:bg-warning/10">
+              <Button onClick={() => handleSaveFlow('aguardando_laudo')} variant="outline" className="border-warning/40 text-warning hover:bg-warning/10">
                 <AlertTriangle className="mr-2 h-4 w-4" /> Aguardar laudo médico
               </Button>
             </div>

@@ -51,12 +51,13 @@ export default function FichaNova() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [alunoInfo, setAlunoInfo] = useState<any>(null);
+  const [avaliacaoInfo, setAvaliacaoInfo] = useState<any>(null);
   const [activeTab, setActiveTab] = useState("A");
 
   // Main Form State
   const [fichaData, setFichaData] = useState({
     nome: "",
-    objetivo: "Hipertrofia",
+    objetivo: "",
     nivel: "Iniciante",
     data_inicio: new Date().toISOString().split('T')[0],
     data_validade: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -92,24 +93,82 @@ export default function FichaNova() {
   const fetchAlunoEAssess = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const { data: alunoData, error: alunoError } = await supabase
         .from('alunos')
-        .select(`
-          id,
-          nome,
-          avaliacoes:avaliacoes_fisicas(nivel_condicionamento, status)
-        `)
+        .select('id, nome')
         .eq('id', alunoId)
         .single();
 
-      if (error) throw error;
+      if (alunoError) throw alunoError;
       
-      // Pegar nível da última avaliação aprovada
-      const aProvada = data.avaliacoes?.filter((a: any) => a.status === 'aprovada').pop();
-      setAlunoInfo({ ...data, nivelSugerido: aProvada?.nivel_condicionamento || "Iniciante" });
-      
-      if (aProvada) {
-         setFichaData(prev => ({ ...prev, nivel: aProvada.nivel_condicionamento }));
+      setAlunoInfo(alunoData);
+
+      const { data: avaliacaoData } = await supabase
+        .from('avaliacoes_fisicas')
+        .select(`
+          *,
+          anamnese:anamnese(*),
+          medidas:medidas_antropometricas(*),
+          testes:testes_fisicos(*)
+        `)
+        .eq('aluno_id', aluno_id)
+        .eq('status', 'aprovada')
+        .order('data_avaliacao', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (avaliacaoData) {
+        setAvaliacaoInfo(avaliacaoData);
+        console.log('anamnese:', avaliacaoData?.anamnese);
+        console.log('objetivos:', avaliacaoData?.anamnese?.objetivos);
+
+        const updates: any = {};
+        if (avaliacaoData.nivel_condicionamento) {
+          updates.nivel = avaliacaoData.nivel_condicionamento;
+        }
+
+        const an = Array.isArray(avaliacaoData.anamnese) ? avaliacaoData.anamnese[0] : avaliacaoData.anamnese;
+        if (an) {
+          const mapaObjetivos: Record<string, string> = {
+            'Perda de peso': 'Emagrecimento',
+            'Ganho de massa': 'Hipertrofia',
+            'Condicionamento': 'Condicionamento',
+            'Reabilitação': 'Reabilitação',
+            'Performance': 'Força',
+            'Bem-estar': 'Resistência'
+          };
+          
+          console.log('objetivos da anamnese:', an.objetivos);
+          console.log('objetivo mapeado:', mapaObjetivos[an.objetivos?.[0]]);
+
+          if (an.objetivos && an.objetivos.length > 0) {
+            const primeiroObjetivo = an.objetivos[0];
+            if (primeiroObjetivo && mapaObjetivos[primeiroObjetivo]) {
+              updates.objetivo = mapaObjetivos[primeiroObjetivo];
+            }
+          }
+
+          let obs = "";
+          if (avaliacaoData.restricoes) {
+            obs += `Restrições: ${avaliacaoData.restricoes}\n`;
+          }
+          if (an.lesoes_desc) {
+            obs += `Lesões/Cirurgias: ${an.lesoes_desc}\n`;
+          }
+          if (an.doencas && an.doencas.length > 0) {
+            obs += `Condições de saúde: ${an.doencas.join(', ')}\n`;
+          }
+          if (an.usa_medicamentos) {
+            obs += `Medicamentos: ${an.medicamentos_desc}\n`;
+          }
+          if (obs) {
+            updates.observacoes = obs;
+          }
+        }
+        
+        if (Object.keys(updates).length > 0) {
+          setFichaData(prev => ({ ...prev, ...updates }));
+        }
       }
 
     } catch (error: any) {
@@ -180,8 +239,16 @@ export default function FichaNova() {
   };
 
   const fetchTemplates = async () => {
-     const { data } = await supabase.from('fichas_treino').select('*').eq('status', 'template');
-     setTemplates(data || []);
+    const { data, error } = await supabase
+      .from('fichas_treino')
+      .select('*, divisoes:divisoes_treino(*, itens:itens_treino(*, exercicio:exercicios(*)))')
+      .eq('status', 'ativa')
+      .eq('salvar_como_template', true);
+      
+    if (error) {
+      console.error('Erro ao buscar templates:', error);
+    }
+    setTemplates(data || []);
   };
 
   const fetchExercicios = async () => {
@@ -435,6 +502,46 @@ export default function FichaNova() {
         </div>
       </div>
 
+      {avaliacaoInfo && (
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm text-sm">
+          <h2 className="font-semibold mb-3 flex items-center gap-2">
+            📋 Dados da última avaliação — {new Date(avaliacaoInfo.data_avaliacao).toLocaleDateString("pt-BR")}
+          </h2>
+          {(() => {
+            const med = Array.isArray(avaliacaoInfo.medidas) ? avaliacaoInfo.medidas[0] : avaliacaoInfo.medidas;
+            if (!med) {
+               return (
+                  <div className="text-muted-foreground flex items-center gap-2">
+                     {avaliacaoInfo.parecer && <span>Parecer do professor: <strong>{avaliacaoInfo.parecer}</strong></span>}
+                  </div>
+               );
+            }
+            
+            const getImcClass = (imc: number) => {
+               if (!imc) return "";
+               if (imc < 18.5) return "Abaixo do peso";
+               if (imc < 25) return "Normal";
+               if (imc < 30) return "Sobrepeso";
+               return "Obesidade";
+            };
+            
+            const imcClass = med.imc ? getImcClass(med.imc) : "";
+
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                {med.peso_kg && <div><span className="text-muted-foreground block text-xs">Peso</span><span className="font-semibold">{med.peso_kg}kg</span></div>}
+                {med.altura_cm && <div><span className="text-muted-foreground block text-xs">Altura</span><span className="font-semibold">{med.altura_cm}cm</span></div>}
+                {med.imc && <div><span className="text-muted-foreground block text-xs">IMC</span><span className="font-semibold">{med.imc} {imcClass ? `(${imcClass})` : ''}</span></div>}
+                {med.perc_gordura && <div><span className="text-muted-foreground block text-xs">% Gordura</span><span className="font-semibold">{med.perc_gordura}%</span></div>}
+                {(med.pressao_sistolica && med.pressao_diastolica) && <div><span className="text-muted-foreground block text-xs">PA</span><span className="font-semibold">{med.pressao_sistolica}/{med.pressao_diastolica} mmHg</span></div>}
+                {med.fc_repouso && <div><span className="text-muted-foreground block text-xs">FC Repouso</span><span className="font-semibold">{med.fc_repouso} bpm</span></div>}
+                {avaliacaoInfo.parecer && <div className="col-span-2 md:col-span-4 lg:col-span-1"><span className="text-muted-foreground block text-xs">Parecer</span><span className="font-semibold line-clamp-2" title={avaliacaoInfo.parecer}>{avaliacaoInfo.parecer}</span></div>}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Seção 1: Dados Gerais */}
         <div className="space-y-6 lg:col-span-1 text-card-foreground">
@@ -463,6 +570,7 @@ export default function FichaNova() {
                         onChange={(e) => setFichaData({...fichaData, objetivo: e.target.value})}
                         className="w-full rounded-lg border border-border bg-background py-2 px-3 text-sm focus:ring-2 focus:ring-primary/20"
                       >
+                        <option value="" disabled>Selecione um objetivo</option>
                         {OBJETIVOS.map(obj => <option key={obj} value={obj}>{obj}</option>)}
                       </select>
                    </div>
