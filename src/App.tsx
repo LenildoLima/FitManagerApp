@@ -22,6 +22,8 @@ import Usuarios from "./pages/Usuarios";
 import UsuarioNovo from "./pages/UsuarioNovo";
 import UsuarioEditar from "./pages/UsuarioEditar";
 import Placeholder from "./pages/Placeholder";
+import Agenda from "./pages/Agenda";
+import Configuracoes from "./pages/Configuracoes";
 import NotFound from "./pages/NotFound.tsx";
 import EsqueciSenha from "./pages/EsqueciSenha";
 import MeuPerfil from "./pages/MeuPerfil";
@@ -55,8 +57,8 @@ const App = () => (
             <Route path="/usuarios" element={<Usuarios />} />
             <Route path="/usuarios/:id/editar" element={<UsuarioEditar />} />
             <Route path="/planos" element={<Plans />} />
-            <Route path="/agenda" element={<Placeholder title="Agenda" />} />
-            <Route path="/configuracoes" element={<Placeholder title="Configurações" />} />
+            <Route path="/agenda" element={<Agenda />} />
+            <Route path="/configuracoes" element={<Configuracoes />} />
             <Route path="/meu-perfil" element={<MeuPerfil />} />
           </Route>
           <Route path="*" element={<NotFound />} />
